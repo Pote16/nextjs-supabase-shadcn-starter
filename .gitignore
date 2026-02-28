@@ -1,0 +1,53 @@
+# Umgebungsvariablen
+.env
+.env.local
+.env.*.local
+
+# Next.js
+.next/
+out/
+build/
+dist/
+.DS_Store
+node_modules
+.next
+
+# Node modules
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp / Check-Dateien
+temp_*.txt
+.tmp/
+
+# Supabase CLI temp
+supabase/.temp/
+
+# IDE
+.vscode/
+.idea/
+.cursor/mcp.json
+*.swp
+*.swo
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Code Samples for cursor
+/x_code_samples/
+_x_code_samples
+x_code_samples

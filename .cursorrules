@@ -1,0 +1,70 @@
+# Microporous ERP - Cursor AI Development Rules
+
+Du bist ein Experte für Next.js 16 (App Router), TypeScript, Tailwind CSS und Supabase, spezialisiert auf ERP-Systeme, Bestellabgleiche und OCR-Lösungen.
+
+## Tech Stack (STRICT)
+- Framework: Next.js 16+ App Router, Server Components by default
+- Styling: Tailwind CSS v4 + shadcn/ui (NO arbitrary values)
+- State: TanStack Query v5, nuqs for URL state
+- Grid: TanStack Table v8 + TanStack Virtual (NO <table> for main grid, performance is key for ERP tables)
+- Database: Supabase SDK ONLY (kein Prisma)
+- PDF/OCR: pdfjs-dist für Parsing, ai-sdk für Extraktion und Abgleich.
+- Types: Automatisch generiert aus Datenbank (Supabase) + Next.js Route Types (Typegen)
+
+## KRITISCH - Datenbank & SQL
+
+### Runtime-Datenzugriff
+- Wir nutzen KEIN Prisma. Wir nutzen AUSSCHLIESSLICH den nativen Supabase Client (@supabase/ssr).
+- ALLE Datenbankzugriffe in Server-Environment über: `import { createClient } from '@/lib/supabase/server'`
+- NIEMALS direktes SQL im Frontend. Immer über Supabase Client.
+- Typen importieren aus: `import { Database } from '@/types/database.types'`
+
+### SQL & Migrations
+- Alle Tabellen MÜSSEN Row Level Security (RLS) aktiviert haben.
+- Erstelle separate RLS Policies für SELECT, INSERT, UPDATE, DELETE.
+- Nutze `(select auth.uid())` für Benutzer-Checks in Policies (Performance!).
+- Schema-Änderungen: Erstelle neue Migration mit `npx supabase migration new feature_name`
+
+### Server Actions
+- Jede Mutation nutzt `lib/safe-action.ts` (`authActionClient` oder `adminActionClient`).
+```typescript
+'use server'
+
+import { authActionClient } from '@/lib/safe-action'
+import { z } from 'zod'
+
+export const createOrder = authActionClient
+  .metadata({ actionName: 'createOrder' })
+  .schema(z.object({ customerId: z.string().uuid() }))
+  .action(async ({ parsedInput, ctx }) => {
+    const { customerId } = parsedInput
+    // ctx.supabase greift auf DB zu
+  })
+```
+
+## Next.js 16 Best Practices
+
+### Route Parameters & SearchParams
+- **KRITISCH**: `params` und `searchParams` sind IMMER `Promise` in Next.js 16
+- Verwende Typegen-generierte Types: `PageProps<'/route/[id]'>`, `LayoutProps<'/route/[id]'>`
+
+### Error Boundaries & Loading States
+- Nutze `lib/utils/safe-error.ts` im Backend, um Leaking zu verhindern.
+- Erstelle `error.tsx` für Error Handling in Route-Gruppen und render Skeletons (`loading.tsx`).
+
+## KI & OCR Architektur
+1. PDFs werden client- oder serverseitig mit `pdfjs-dist` textuell extrahiert.
+2. Unstrukturierter Text geht durch deterministische Filter.
+3. Strukturierung von Bestelldaten erfolgt mit `@ai-sdk/google` (Gemini API) im Schema-Mode (z.B. Zod-Validierung des LLM-Outputs).
+4. Nur strukturierte Daten persistieren in Supabase.
+
+## Naming Conventions
+- Datenbank (SQL): snake_case (orders, created_at)
+- TypeScript Code: camelCase (orderList, userId)
+- Dateinamen: kebab-case (order-table.tsx)
+- Komponenten: PascalCase (OrderTable)
+
+## Wichtige Hinweise
+- Keine prisma.* Aufrufe mehr!
+- Für Supabase Type-Generierung: `npm run db:types`
+- Lokale Entwicklung: `npm run dev`
