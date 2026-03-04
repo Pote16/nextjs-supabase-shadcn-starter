@@ -72,9 +72,9 @@ export async function updateSession(request: NextRequest) {
     try {
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
         const projectRef = supabaseUrl ? new URL(supabaseUrl).hostname.split('.')[0] : ''
-        if (projectRef) {
+        if (projectRef && request.cookies?.getAll) {
             const expectedPrefix = `sb-${projectRef}-auth-token`
-            const allCookies = request.cookies.getAll()
+            const allCookies = request.cookies.getAll().filter((c): c is { name: string; value: string } => typeof c?.name === 'string')
             for (const { name } of allCookies) {
                 if (name.startsWith('sb-') && name.includes('-auth-token') && !name.startsWith(expectedPrefix)) {
                     response.cookies.set(name, '', { maxAge: 0, path: '/' })
@@ -84,15 +84,22 @@ export async function updateSession(request: NextRequest) {
     } catch { }
 
     try {
+        // Next.js 16 proxy: request may not be full NextRequest; ensure cookie values are strings (avoids charCodeAt on undefined)
+        const cookieStore = request.cookies
+        const getAll = () => {
+            if (!cookieStore?.getAll) return []
+            return cookieStore.getAll().filter((c): c is { name: string; value: string } => typeof c?.name === 'string' && typeof c?.value === 'string')
+        }
         const supabase = createServerClient(
             process.env.NEXT_PUBLIC_SUPABASE_URL!,
             process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
             {
                 cookies: {
-                    getAll() { return request.cookies.getAll() },
+                    getAll,
                     setAll(cookiesToSet: Array<{ name: string; value: string; options: CookieOptions }>) {
                         cookiesToSet.forEach(({ name, value, options }) => {
-                            request.cookies.set(name, value)
+                            if (typeof name !== 'string' || typeof value !== 'string') return
+                            cookieStore?.set?.(name, value)
                             response.cookies.set(name, value, options)
                         })
                     },
