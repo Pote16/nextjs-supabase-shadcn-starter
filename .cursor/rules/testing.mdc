@@ -1,0 +1,81 @@
+---
+description: Testing-Standards — Vitest + Playwright + Testing Library + GitHub Actions CI
+globs: ['tests/**/*', '**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx', 'vitest.config.ts', 'playwright.config.ts']
+alwaysApply: false
+---
+
+# Testing-Standards
+
+Test-Suite ist in vier Ebenen aufgeteilt — siehe `tests/README.md` für volle Doku.
+
+## Stack
+
+- **Vitest v4** für Unit + Integration (jsdom environment für Component-Tests, node für reine Logik).
+- **@testing-library/react v16** + **@testing-library/jest-dom** + **@testing-library/user-event** für Component-Tests.
+- **Playwright v1.60** für E2E.
+- **jsdom** als default DOM-Environment.
+- **v8 coverage** mit Threshold 60% (lines/statements/functions) und 50% (branches).
+
+## Strukturkonventionen
+
+```
+tests/
+├── unit/          # Pure-Function Tests, deterministisch, schnell
+├── integration/   # Tests die mehrere Module zusammenführen (z. B. Server Actions → echte Supabase)
+├── e2e/           # Playwright-Tests, echter Browser
+├── fixtures/      # Statische Testdaten
+└── setup.ts       # Vitest Setup (jest-dom matchers, env defaults, RTL cleanup)
+```
+
+- Test-Dateien NEBEN dem Source-Tree (in `tests/`), NICHT inline (`*.test.ts` direkt im `lib/` Ordner) — sonst landet Test-Code im Bundle.
+- File-Naming: `<name>.test.ts(x)` (Vitest) / `<name>.spec.ts(x)` (Playwright).
+- Pure node-Logik-Tests bekommen `// @vitest-environment node` als erste Zeile — spart jsdom-Init.
+
+## Was wird getestet?
+
+| Layer                | Wie                                                       |
+| -------------------- | --------------------------------------------------------- |
+| Pure Functions       | Vitest unit, node-env, keine Mocks                        |
+| Type-Guards          | Vitest unit mit positive + negative cases                 |
+| Hooks                | RTL `renderHook` (vitest-jsdom)                           |
+| Components           | RTL `render` + `userEvent` — role/text Queries bevorzugen |
+| Server Actions       | Integration test mit lokaler Supabase + getestetem ctx    |
+| Middleware (Proxy)   | E2E mit Playwright (echte Header)                         |
+| RLS-Policies         | SQL-Tests via pgTAP oder Supabase test helpers            |
+| Critical User Flows  | E2E: Login → Dashboard → Mutation → Persist               |
+
+## Konventionen
+
+- **Arrange / Act / Assert** mit Leerzeile dazwischen.
+- **describe('SymbolName', ...)** als äußere Gruppe — eine Test-Suite pro public function/component.
+- **it('beschreibt das Verhalten in Klartext')** — kein "should", direkte Aussage.
+- **Keine Snapshots** für UI-Tests — Snapshots verfaulen schnell und werden ungeprüft committed. Stattdessen explizite Assertions auf Roles/Texte.
+- **Mocks sparsam** — Pure Functions brauchen keine Mocks. Wenn ein Mock nötig ist, dann `vi.mock('module-path', () => ({...}))` am Datei-Top.
+- **Test-Isolation:** Jeder Test ist standalone. Keine Reihenfolgen-Abhängigkeit. `beforeEach` für State-Reset.
+- **Fake Timer** mit `vi.useFakeTimers({ shouldAdvanceTime: true })` + `vi.useRealTimers()` in `afterEach`.
+
+## Befehle
+
+| Befehl              | Was                                          |
+| ------------------- | -------------------------------------------- |
+| `pnpm test`         | Vitest einmalig (CI default)                 |
+| `pnpm test:watch`   | Vitest watch                                 |
+| `pnpm test:coverage`| Vitest mit v8 Coverage + HTML-Report         |
+| `pnpm test:e2e`     | Playwright E2E (alle Projects)               |
+| `pnpm test:e2e:ui`  | Playwright UI Mode (interaktiv debuggen)     |
+
+## E2E (Playwright)
+
+- Setup-Project (`tests/e2e/auth.setup.ts`) loggt sich einmal ein und schreibt `tests/e2e/.auth/user.json`.
+- Authenticated Tests: `*.spec.ts` (Project `chromium` mit `storageState`).
+- Anonyme Tests: `*.public.spec.ts` (Project `public`, ohne storageState).
+- E2E nutzt `webServer` in `playwright.config.ts` — startet `pnpm dev` (lokal) bzw. `pnpm start` (CI) automatisch.
+- Auth-Credentials in CI via Secrets: `PLAYWRIGHT_TEST_EMAIL`, `PLAYWRIGHT_TEST_PASSWORD`. Lokal über `.env.local`.
+
+## Verbote
+
+- Keine Tests die Internet brauchen (außer ausdrücklich integration).
+- Keine `console.log` in Tests (deaktiviere ESLint-Regel nicht).
+- Keine geleakten Timeouts (`setTimeout` ohne cleanup) — nutze `vi.useFakeTimers`.
+- Kein `any` in Test-Helpers — typsicher bleiben.
+- Keine geheimen Tokens in committeten Tests/Fixtures — nur env vars / secrets.
