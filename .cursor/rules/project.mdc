@@ -1,0 +1,83 @@
+---
+description: Master-Regel — Tech Stack, Architektur, Datenzugriff, Coding Standards
+alwaysApply: true
+---
+
+# Project Context
+
+Hochperformanter SaaS- / ERP-Starter auf Next.js 16 + Supabase + shadcn (Base UI).
+Stack ausgelegt auf KI-gestützte Workflows (OCR, LLM-Strukturierung) und sichere Mandantentrennung via Supabase Row Level Security.
+
+## 1. Tech Stack
+
+- **Frontend:** Next.js 16+ (App Router, `proxy.ts` statt `middleware.ts`), React 19, Tailwind CSS v4 (CSS-first config), shadcn/ui auf **Base UI** Primitives (`@base-ui/react`).
+- **State/Caching:** TanStack Query v5 (Server State), Nuqs (URL State).
+- **Data Grid:** TanStack Table v8 + TanStack Virtual.
+- **Backend/Auth:** Supabase (PostgreSQL, Auth, Realtime, Storage), `@supabase/ssr`.
+- **Server Actions:** `next-safe-action` v8 (`.inputSchema()` statt `.schema()`) mit Zod v4.
+- **PDF/OCR:** `pdfjs-dist`, `jspdf`.
+- **AI/LLM:** `ai-sdk` (Google Gemini) für Datenstrukturierung.
+- **Schema:** Native Supabase Migrations (SQL).
+- **Type Generation:** `pnpm db:types` (Supabase) + `pnpm typegen` (Next.js Route Types — `params`/`searchParams` sind Promises in Next 16).
+- **Package Manager:** pnpm (kein npm/yarn).
+
+## 2. Architektur-Regeln
+
+### A. Env & Konfiguration
+
+- **Single Source:** Alle Env-Variablen via `@/lib/env` (`env.SUPABASE_URL`, `env.APP_URL`, …). Nie direkt `process.env.*` außer in `lib/env.ts`.
+- Bei fehlenden Pflicht-Vars wirft `env.X`-Zugriff am ersten Lese-Zugriff — Build-Time-Validierung via `scripts/check-env.mjs`.
+
+### B. Datenbank-Zugriff
+
+- **Schema-Hoheit:** SQL-Migrations in `supabase/migrations/` sind Single Source of Truth.
+  - Workflow: `pnpm db:migrate <name>` → SQL schreiben → `pnpm db:reset` → `pnpm db:types`.
+  - Tabellen **NIEMALS** manuell im Supabase Dashboard anlegen.
+- **Runtime:** Immer SDK (`await supabase.from(...).select()`). RLS-Policies erzwingen Sicherheit DB-seitig.
+- **Typen:** Generierte Typen aus `@/types/database.types`. Keine manuellen Interfaces für DB-Rows.
+
+### C. Server Actions vs. API Routes
+
+- **Mutations:** Server Actions (`'use server'`) mit `authActionClient`/`adminActionClient` aus `@/lib/safe-action`. `.inputSchema(z.object({...}))` (v8) + `ctx.supabase`.
+- **Fetching:** Server Components für initialen Load, TanStack Query für Interaktivität.
+- **API Routes:** Nur für Webhooks (`/api/webhooks/*`) und Cron-Jobs (`/api/cron/*`). Eigene Auth (HMAC/Secret). Werden im Proxy rate-limited (`RATE_LIMITS.webhook`).
+
+### D. UI: shadcn auf Base UI
+
+- Komponenten installieren via `pnpm exec shadcn add <name>`. Style `base-nova` ist gesetzt → Imports werden gegen `@base-ui/react` erzeugt.
+- **NIEMALS** `@radix-ui/*` Pakete oder Imports — Radix ist komplett entfernt.
+- Animationen via `tw-animate-css` (in `globals.css` importiert), nicht `tailwindcss-animate`.
+
+### E. Routing-Konstanten
+
+- Public-Paths, Auth-Redirects, Webhook-Paths zentral in `@/lib/auth/routes` — nicht inline duplizieren.
+
+### F. Security-Headers
+
+- `@/lib/security/headers` exportiert `applySecurityHeaders` + `generateNonce`. CSP-Template ist gecacht — nur Nonce variiert pro Request.
+- Custom Header-Namen über Konstanten aus `@/lib/env` (`NONCE_HEADER`) referenzieren.
+
+## 3. Namenskonventionen
+
+- **Datenbank (SQL):** `snake_case` (`orders`, `created_at`)
+- **TypeScript:** `camelCase` (`orderList`)
+- **Dateinamen:** `kebab-case` (`components/order-card.tsx`)
+- **Komponenten:** `PascalCase` (`OrderCard`)
+
+## 4. Coding Standards
+
+- **UI:** shadcn/ui (Base UI primitives). Keine Custom Component-Library aufziehen.
+- **DnD:** `@dnd-kit`.
+- **Tabellen:** TanStack Table (headless). Nie `<table>` manuell.
+
+### KI & OCR Workflow
+
+1. PDFs parsen mit `pdfjs-dist`.
+2. Extraktion via `@ai-sdk/google` (Schema-Mode mit Zod-Validierung).
+3. LLM-Outputs deterministisch validieren (z. B. SKU-Whitelist) — keine Halluzinationen persistieren.
+
+## 5. Deployment
+
+- Production via PM2 (`scripts/deploy.sh`) oder Docker (`Dockerfile`). Beides nutzt pnpm.
+- Standalone-Build (`next.config.mjs → output: 'standalone'`).
+- Build-Time Env-Check via `scripts/check-env.mjs` — schlägt hart fehl bei fehlenden Vars.

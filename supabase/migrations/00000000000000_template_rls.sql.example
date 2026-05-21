@@ -1,0 +1,79 @@
+-- =====================================================================
+-- TEMPLATE: Tabelle mit Multi-Tenant RLS (Kopiere diese Datei als Vorlage
+-- für neue Migrations und benenne sie um zu: <YYYYMMDDHHMMSS>_<feature>.sql)
+-- =====================================================================
+-- Konventionen:
+-- * Idempotent (CREATE ... IF NOT EXISTS / ADD COLUMN IF NOT EXISTS)
+-- * RLS aktiviert, separate Policies pro Operation
+-- * (select auth.uid()) statt auth.uid() (Performance: Initplan-Cache)
+-- * updated_at via Trigger
+-- =====================================================================
+
+-- 0. Helper: updated_at-Trigger (idempotent anlegen)
+CREATE OR REPLACE FUNCTION public.set_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    NEW.updated_at = now();
+    RETURN NEW;
+END;
+$$;
+
+-- 1. Tabelle
+CREATE TABLE IF NOT EXISTS public.example_items (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_id    UUID NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+    name        TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 200),
+    payload     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    deleted_at  TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 2. Indizes
+CREATE INDEX IF NOT EXISTS idx_example_items_owner_id ON public.example_items (owner_id);
+CREATE INDEX IF NOT EXISTS idx_example_items_created_at ON public.example_items (created_at DESC);
+
+-- 3. Trigger für updated_at
+DROP TRIGGER IF EXISTS trg_example_items_updated_at ON public.example_items;
+CREATE TRIGGER trg_example_items_updated_at
+BEFORE UPDATE ON public.example_items
+FOR EACH ROW
+EXECUTE FUNCTION public.set_updated_at();
+
+-- 4. RLS aktivieren
+ALTER TABLE public.example_items ENABLE ROW LEVEL SECURITY;
+
+-- 5. Policies (separat pro Operation, keine FOR ALL!)
+DROP POLICY IF EXISTS "example_items_select_own" ON public.example_items;
+CREATE POLICY "example_items_select_own"
+ON public.example_items
+FOR SELECT
+TO authenticated
+USING (owner_id = (select auth.uid()));
+
+DROP POLICY IF EXISTS "example_items_insert_own" ON public.example_items;
+CREATE POLICY "example_items_insert_own"
+ON public.example_items
+FOR INSERT
+TO authenticated
+WITH CHECK (owner_id = (select auth.uid()));
+
+DROP POLICY IF EXISTS "example_items_update_own" ON public.example_items;
+CREATE POLICY "example_items_update_own"
+ON public.example_items
+FOR UPDATE
+TO authenticated
+USING (owner_id = (select auth.uid()))
+WITH CHECK (owner_id = (select auth.uid()));
+
+DROP POLICY IF EXISTS "example_items_delete_own" ON public.example_items;
+CREATE POLICY "example_items_delete_own"
+ON public.example_items
+FOR DELETE
+TO authenticated
+USING (owner_id = (select auth.uid()));
+
+-- HINWEIS: deleted_at-Filter erfolgt im App-Code (Soft-Delete), NICHT in der Policy,
+-- damit Admin-Tools weiterhin alle Datensätze sehen können.

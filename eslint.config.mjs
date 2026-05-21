@@ -11,12 +11,7 @@ export default defineConfig([
     ...nextTs,
     ...pluginQuery.configs['flat/recommended'],
 
-    globalIgnores([
-        '.next/**',
-        'out/**',
-        'build/**',
-        'next-env.d.ts',
-    ]),
+    globalIgnores(['.next/**', 'out/**', 'build/**', 'next-env.d.ts']),
 
     {
         plugins: {

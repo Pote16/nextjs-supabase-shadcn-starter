@@ -1,0 +1,48 @@
+---
+paths:
+    - '**/*.tsx'
+    - '**/*.css'
+    - 'components.json'
+---
+
+# Theme-Farben (Tailwind v4 / shadcn Base UI)
+
+Bei neuen oder geänderten UI-Komponenten diese Token-Regeln einhalten.
+
+## Stack-Hinweis
+
+- **Tailwind v4** mit CSS-first config (KEINE `tailwind.config.ts`). Alle Tokens leben in `app/globals.css` unter `@theme inline { ... }`.
+- **shadcn style `base-nova`** mit Base UI Primitives (`@base-ui/react`).
+- Farben sind **OKLCH** statt HSL — bessere Wahrnehmungs-Gleichmäßigkeit, weiterer Gamut.
+
+## Hierarchie
+
+- **Light:** Seiten-Hintergrund `--background` (weiß), Card `--card` (weiß), Border subtil.
+- **Dark:** Hintergrund tief (`oklch(0.145 0 0)`), Card eine Stufe heller (`oklch(0.205 0 0)`).
+
+## Token-Zuordnung
+
+- **Seiten-Hintergrund:** `bg-background`.
+- **Header (sticky):** `bg-background` + optional `backdrop-blur`.
+- **Sidebar:** `bg-sidebar` + `text-sidebar-foreground`.
+- **Karten, Tabellen-Container, Sheet, Dialog:** `bg-card border border-border`.
+- **Menüs (Dropdown, Popover, Command):** `bg-popover text-popover-foreground`.
+- **Sekundäre Container:** `bg-muted` / `bg-secondary`.
+- **Hervorhebung:** `bg-accent` / `text-accent-foreground`.
+
+## Semantische Tokens
+
+- **Fehler / Destruktive Aktionen:** `bg-destructive text-destructive-foreground`.
+- **Erfolg:** `bg-success text-success-foreground`.
+- **Warnung:** `bg-warning text-warning-foreground`.
+- **Info:** `bg-info text-info-foreground`.
+
+## Charts
+
+- Charts nutzen `--chart-1` bis `--chart-5` — bewusst kontrastierende Hues, damit Daten-Serien auch bei Color-Vision-Deficiency unterscheidbar bleiben.
+
+## Verbote
+
+- **Keine** Tailwind-Arbitrary-Values für Farben (`bg-[#fff]`, `text-[oklch(...)]`).
+- **Keine** Custom CSS-Variablen außerhalb von `@theme inline` für Farben — sonst funktioniert die Tailwind-Auto-Generation der Utilities nicht.
+- **Keine** `hsl()`-Tokens mehr — wir sind voll auf OKLCH.

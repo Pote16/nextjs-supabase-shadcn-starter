@@ -1,0 +1,61 @@
+---
+description: Sicherheitsstandards — Server Actions, Auth-Clients, Rate Limiting, CSP, Uploads, RLS
+alwaysApply: true
+---
+
+# Security Standards
+
+Diese Regeln sind verbindlich.
+
+## 1. Server Actions (next-safe-action v8)
+
+- Neue Actions IMMER mit `authActionClient` oder `adminActionClient` aus `@/lib/safe-action`. Niemals manuell `createClient()` aufrufen — nutze `ctx.supabase`.
+- Input-Validation über `.inputSchema(z.object({ ... }))` (v8 API; `.schema()` ist deprecated).
+- Metadaten via `.metadata({ actionName: 'createOrder' })` setzen — wird für Logging genutzt.
+- Output-Schema bei sensitiven Daten via `.outputSchema(...)` definieren (nur freigegebene Felder gehen an den Client).
+
+## 2. Fehler & Secrets
+
+- Fehler an den Client ausschließlich über `safeErrorMessage()` oder `ActionError` aus `@/lib/safe-action-utils`. Keine Roh-Fehlermeldungen leaken (DB-Constraints, Stacktraces, interne Pfade).
+- Keine sensiblen Werte in `NEXT_PUBLIC_*` — diese sind im Client-Bundle sichtbar.
+- Service-Role-Key ausschließlich serverseitig. Eigener Helper mit `import 'server-only'` am Datei-Anfang.
+
+## 3. Auth & Redirects
+
+- LLM/API-Aufrufe (Gemini, OpenAI) ausschließlich serverseitig — Keys nie im Client.
+- Open-Redirect-Prävention: Redirect-Ziele gegen Allowlist prüfen (z. B. nur same-origin + `additional_redirect_urls`).
+- Login-Redirects sind deterministisch (`AUTH_REDIRECTS.afterLogin` aus `@/lib/auth/routes`).
+
+## 4. Rate Limiting
+
+- Konfiguration in `@/lib/rate-limit`. Redis (über `REDIS_URL` oder `REDIS_HOST/PORT/PASSWORD`) bevorzugt; In-Memory ist Fallback und nur für Single-Instance brauchbar.
+- Sensible Pfade rate-limiten: `/login` POST (`RATE_LIMITS.authPerIp`), Webhook-Endpunkte (`RATE_LIMITS.webhook`).
+- Identifier-Wahl per IP über `getClientIp()` aus `@/lib/security/client-ip` — bevorzugt Provider-Header (`cf-connecting-ip`, `x-vercel-forwarded-for`, `fly-client-ip`) vor `x-forwarded-for`.
+
+## 5. Security Headers & CSP
+
+- Gesetzt in `@/lib/security/headers` (`applySecurityHeaders`).
+- CSP nutzt Nonce (`x-nonce` Request-Header) für Inline-Scripts; in Production zusätzlich `'strict-dynamic'`.
+- `connect-src` enthält den Supabase-Origin (dynamisch aus `env.SUPABASE_ORIGIN`).
+- `frame-ancestors 'none'` + `X-Frame-Options: DENY` — Clickjacking-Schutz.
+- HSTS mit `preload` (max-age 2 Jahre).
+- RootLayout MUSS Nonce via `(await headers()).get(NONCE_HEADER)` lesen, damit Next.js den Nonce auf Framework-Scripts setzt.
+
+## 6. Uploads & XSS
+
+- MIME-Type-Check: Strengste Allowlist (nicht nur Content-Type Header, sondern Magic-Byte-Sniffing bei PDFs / Bildern).
+- Dateinamen vor dem Speichern in Supabase Storage sanitizen: nur `[A-Za-z0-9._-]`, max. Länge clampen, Pfad-Traversal (`..`) entfernen.
+- User-generierter Content niemals direkt als HTML / `dangerouslySetInnerHTML` rendern.
+
+## 7. Supabase RLS
+
+- Jede Tabelle MUSS RLS aktiviert haben (`ALTER TABLE ... ENABLE ROW LEVEL SECURITY;`).
+- Policies separat für SELECT/INSERT/UPDATE/DELETE (kein `FOR ALL`).
+- `(select auth.uid())` statt `auth.uid()` (Performance: Initplan-Cache).
+- Service-Role umgeht RLS — nur in Background-Jobs / Webhooks, niemals in vom User getriggerten Pfaden.
+- Template für neue Tabellen: `supabase/migrations/00000000000000_template_rls.sql.example`.
+
+## 8. Cookies
+
+- Lösch-Cookies IMMER mit `SECURE_COOKIE_DEFAULTS` aus `@/lib/supabase/cookies` setzen (`httpOnly`, `secure` in Prod, `sameSite: 'lax'`).
+- Cookie-Filter über `isStringCookie` / `hasStringName` aus `@/lib/supabase/cookies` (Next.js 16 Proxy-Defensive).

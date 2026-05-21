@@ -1,6 +1,6 @@
 # `/types` Verzeichnis
 
-Hier liegen alle app-übergreifenden TypeScript-Typisierung. 
+Hier liegen alle app-übergreifenden TypeScript-Typisierung.
 
 ## Generierte Supabase Typen
 
@@ -11,9 +11,10 @@ Diese Datei ist **autogeneriert** aus dem Supabase Schema und darf niemals manue
 Sobald über `npx supabase migration` und `npm run db:reset` eine Datenbankänderung durchgeführt wurde, führe `npm run db:types` (`npx supabase gen types typescript --local > types/database.types.ts`) aus, um sie zu aktualisieren.
 
 **Nutzung in der App:**
-```typescript
-import { Database } from '@/types/database.types'
 
-export type Order = Database['public']['Tables']['orders']['Row']
-export type OrderInsert = Database['public']['Tables']['orders']['Insert']
+```typescript
+import { Database } from '@/types/database.types';
+
+export type Order = Database['public']['Tables']['orders']['Row'];
+export type OrderInsert = Database['public']['Tables']['orders']['Insert'];
 ```

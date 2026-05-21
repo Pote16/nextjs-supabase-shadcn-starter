@@ -1,7 +1,16 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     output: 'standalone',
     reactStrictMode: true,
+    outputFileTracingRoot: __dirname,
+    typescript: {
+        ignoreBuildErrors: false,
+    },
     images: {
         remotePatterns: [
             {
@@ -13,7 +22,8 @@ const nextConfig = {
     },
     experimental: {
         serverActions: {
-            bodySizeLimit: '11mb',
+            // 4MB Default; größere Uploads via Supabase Storage signed-URLs direkt vom Client.
+            bodySizeLimit: '4mb',
             allowedOrigins: process.env.NEXT_PUBLIC_APP_URL
                 ? [new URL(process.env.NEXT_PUBLIC_APP_URL).host]
                 : [],
@@ -22,21 +32,11 @@ const nextConfig = {
     async headers() {
         return [
             {
-                source: '/:path*{/}?',
-                headers: [
-                    {
-                        key: 'X-Accel-Buffering',
-                        value: 'no',
-                    },
-                ],
+                source: '/:path*',
+                headers: [{ key: 'X-Accel-Buffering', value: 'no' }],
             },
-        ]
+        ];
     },
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    outputFileTracingRoot: require('path').join(__dirname),
-    typescript: {
-        ignoreBuildErrors: false,
-    },
-}
+};
 
-module.exports = nextConfig
+export default nextConfig;

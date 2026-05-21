@@ -10,6 +10,7 @@ Dieses Verzeichnis beinhaltet alle Hilfsskripte (meist Bash oder TypeScript) fü
 
 Falls Skripte lokal direkt über npm ausgeführt werden sollen, definiere sie in der `package.json` und rufe sie hier auf.
 Beispiel `package.json`:
+
 ```json
 "scripts": {
    "db:reset": "npx supabase db reset"

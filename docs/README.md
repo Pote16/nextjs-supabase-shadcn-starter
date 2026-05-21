@@ -10,5 +10,5 @@ Mögliche Inhalte, die hier strukturiert werden sollen:
 - `ai_workflow.md`: Wie Dokumente geparsed, OCR-Informationen mit `pdfjs-dist` extrahiert und Kandidaten für Lieferabgleiche ausgewählt werden.
 
 ## Hinweis:
-Halte die Dokumentation präzise und update sie nach neuen Architektur-Refactorings (insbesondre bei Supabase Database Type Änderungen).
 
+Halte die Dokumentation präzise und update sie nach neuen Architektur-Refactorings (insbesondre bei Supabase Database Type Änderungen).

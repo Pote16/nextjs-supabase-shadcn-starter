@@ -1,133 +1,113 @@
-import { type CookieOptions, createServerClient } from '@supabase/ssr'
-import { type NextRequest, NextResponse } from 'next/server'
+import { type CookieOptions, createServerClient } from '@supabase/ssr';
+import { type NextRequest, NextResponse } from 'next/server';
 
-import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
+import { AUTH_REDIRECTS, isPublicPath, isWebhookPath } from '@/lib/auth/routes';
+import { env, NONCE_HEADER } from '@/lib/env';
+import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/security/client-ip';
+import { applySecurityHeaders, generateNonce } from '@/lib/security/headers';
+import { isStringCookie, SECURE_COOKIE_DEFAULTS } from '@/lib/supabase/cookies';
 
-// Public paths that do not require auth
-const PUBLIC_PATHS = ['/login', '/auth/callback', '/api/webhooks', '/api/cron']
+async function applyAuthRateLimit(request: NextRequest): Promise<NextResponse | null> {
+    const ip = getClientIp(request) ?? 'unknown';
+    const rateLimit = await checkRateLimit(`auth:ip:${ip}`, RATE_LIMITS.authPerIp);
+    if (!rateLimit.limited) return null;
 
-const SECURITY_HEADERS_BASE: Record<string, string> = {
-    'X-Frame-Options': 'DENY',
-    'X-Content-Type-Options': 'nosniff',
-    'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'X-DNS-Prefetch-Control': 'on',
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+    const response = NextResponse.json({ error: 'Zu viele Anmeldeversuche.' }, { status: 429 });
+    response.headers.set('Retry-After', String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)));
+    return response;
 }
 
-function buildCspHeader(nonce: string): string {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
-    const supabaseOrigin = supabaseUrl ? new URL(supabaseUrl).origin : ''
-    const supabaseWsOrigin = supabaseOrigin ? supabaseOrigin.replace(/^http/, 'ws') : ''
-    const connectSrcParts = ['self', supabaseOrigin, supabaseWsOrigin, '*.supabase.co', 'wss://*.supabase.co']
-    const connectSrc = connectSrcParts.filter(Boolean).map(s => s === 'self' ? "'self'" : s).join(' ')
-    const imgSrc = ['self', 'blob:', 'data:', supabaseOrigin, '*.supabase.co'].filter(Boolean).map(s => s === 'self' ? "'self'" : s).join(' ')
-    const mediaSrc = ['self', 'blob:', 'data:', supabaseOrigin, '*.supabase.co'].filter(Boolean).map(s => s === 'self' ? "'self'" : s).join(' ')
+async function applyWebhookRateLimit(request: NextRequest): Promise<NextResponse | null> {
+    const ip = getClientIp(request) ?? 'unknown';
+    const rateLimit = await checkRateLimit(`webhook:ip:${ip}`, RATE_LIMITS.webhook);
+    if (!rateLimit.limited) return null;
 
-    const parts = [
-        "default-src 'self'",
-        `script-src 'self' 'unsafe-inline' 'unsafe-eval'`,
-        "style-src 'self' 'unsafe-inline'",
-        `img-src ${imgSrc}`,
-        `media-src ${mediaSrc}`,
-        `connect-src ${connectSrc}`,
-        "font-src 'self'",
-        "frame-src 'none'",
-        "object-src 'none'",
-        "base-uri 'self'",
-        "form-action 'self'",
-    ]
-    return parts.join('; ')
+    const response = NextResponse.json({ error: 'Rate limit exceeded.' }, { status: 429 });
+    response.headers.set('Retry-After', String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)));
+    return response;
 }
 
-function applySecurityHeaders(response: NextResponse, nonce: string): void {
-    for (const [key, value] of Object.entries(SECURITY_HEADERS_BASE)) {
-        response.headers.set(key, value)
+function cleanupStaleSupabaseCookies(request: NextRequest, response: NextResponse): void {
+    const expectedPrefix = `sb-${env.SUPABASE_PROJECT_REF}-auth-token`;
+    if (!env.SUPABASE_PROJECT_REF) return;
+
+    const cookies = request.cookies.getAll().filter(isStringCookie);
+    for (const { name } of cookies) {
+        if (
+            name.startsWith('sb-') &&
+            name.includes('-auth-token') &&
+            !name.startsWith(expectedPrefix)
+        ) {
+            response.cookies.set(name, '', { ...SECURE_COOKIE_DEFAULTS, maxAge: 0 });
+        }
     }
-    response.headers.set('Content-Security-Policy', buildCspHeader(nonce))
+}
+
+function createMiddlewareSupabaseClient(request: NextRequest, response: NextResponse) {
+    return createServerClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+        cookies: {
+            getAll() {
+                return request.cookies.getAll().filter(isStringCookie);
+            },
+            setAll(cookiesToSet: Array<{ name: string; value: string; options: CookieOptions }>) {
+                for (const { name, value, options } of cookiesToSet) {
+                    if (typeof name !== 'string' || typeof value !== 'string') continue;
+                    request.cookies.set(name, value);
+                    response.cookies.set(name, value, options);
+                }
+            },
+        },
+    });
 }
 
 export async function updateSession(request: NextRequest) {
-    const { pathname } = request.nextUrl
-    const nonce = Buffer.from(crypto.randomUUID()).toString('base64')
-    const requestHeaders = new Headers(request.headers)
-    requestHeaders.set('x-nonce', nonce)
+    const { pathname } = request.nextUrl;
+    const nonce = generateNonce();
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(NONCE_HEADER, nonce);
 
-    // Rate Limiting
+    const secure = (res: NextResponse) => applySecurityHeaders(res, nonce);
+
+    // Rate-Limits VOR Supabase-Client-Init — sparen Roundtrip wenn schon geblockt.
     if (pathname === '/login' && request.method === 'POST') {
-        const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown'
-        const rateLimit = await checkRateLimit(`auth:ip:${ip}`, RATE_LIMITS.auth)
-        if (rateLimit.limited) {
-            const blockedResponse = NextResponse.json({ error: 'Zu viele Anmeldeversuche.' }, { status: 429 })
-            blockedResponse.headers.set('Retry-After', String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)))
-            applySecurityHeaders(blockedResponse, nonce)
-            return blockedResponse
-        }
+        const blocked = await applyAuthRateLimit(request);
+        if (blocked) return secure(blocked);
     }
 
-    const response = NextResponse.next({ request: { headers: requestHeaders } })
-    applySecurityHeaders(response, nonce)
+    if (isWebhookPath(pathname)) {
+        const blocked = await applyWebhookRateLimit(request);
+        if (blocked) return secure(blocked);
+    }
 
-    // Cookie-Hygiene
-    try {
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-        const projectRef = supabaseUrl ? new URL(supabaseUrl).hostname.split('.')[0] : ''
-        if (projectRef && request.cookies?.getAll) {
-            const expectedPrefix = `sb-${projectRef}-auth-token`
-            const allCookies = request.cookies.getAll().filter((c): c is { name: string; value: string } => typeof c?.name === 'string')
-            for (const { name } of allCookies) {
-                if (name.startsWith('sb-') && name.includes('-auth-token') && !name.startsWith(expectedPrefix)) {
-                    response.cookies.set(name, '', { maxAge: 0, path: '/' })
-                }
-            }
-        }
-    } catch { }
+    const response = NextResponse.next({ request: { headers: requestHeaders } });
+    secure(response);
+    cleanupStaleSupabaseCookies(request, response);
+
+    // Webhook-/Cron-Endpunkte haben eigene Auth (HMAC, Secret-Header) —
+    // wir sparen den Supabase-Roundtrip.
+    if (isWebhookPath(pathname)) {
+        return response;
+    }
 
     try {
-        // Next.js 16 proxy: request may not be full NextRequest; ensure cookie values are strings (avoids charCodeAt on undefined)
-        const cookieStore = request.cookies
-        const getAll = () => {
-            if (!cookieStore?.getAll) return []
-            return cookieStore.getAll().filter((c): c is { name: string; value: string } => typeof c?.name === 'string' && typeof c?.value === 'string')
-        }
-        const supabase = createServerClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-            {
-                cookies: {
-                    getAll,
-                    setAll(cookiesToSet: Array<{ name: string; value: string; options: CookieOptions }>) {
-                        cookiesToSet.forEach(({ name, value, options }) => {
-                            if (typeof name !== 'string' || typeof value !== 'string') return
-                            cookieStore?.set?.(name, value)
-                            response.cookies.set(name, value, options)
-                        })
-                    },
-                },
-            }
-        )
+        const supabase = createMiddlewareSupabaseClient(request, response);
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
 
-        const { data: { user } } = await supabase.auth.getUser()
-        const isPublicPath = PUBLIC_PATHS.some(path => pathname.startsWith(path))
-
-        if (!user && !isPublicPath && pathname !== '/') {
-            const res = NextResponse.redirect(new URL('/login', request.url))
-            applySecurityHeaders(res, nonce)
-            return res
+        if (!user && !isPublicPath(pathname) && pathname !== '/') {
+            return secure(
+                NextResponse.redirect(new URL(AUTH_REDIRECTS.unauthenticated, request.url)),
+            );
         }
 
-        if (user) {
-            if (pathname === '/login' || pathname === '/') {
-                const res = NextResponse.redirect(new URL('/dashboard', request.url))
-                applySecurityHeaders(res, nonce)
-                return res
-            }
+        if (user && (pathname === '/login' || pathname === '/')) {
+            return secure(NextResponse.redirect(new URL(AUTH_REDIRECTS.afterLogin, request.url)));
         }
 
-        return response
+        return response;
     } catch {
-        const res = NextResponse.redirect(new URL('/login', request.url))
-        applySecurityHeaders(res, nonce)
-        return res
+        return secure(NextResponse.redirect(new URL(AUTH_REDIRECTS.unauthenticated, request.url)));
     }
 }

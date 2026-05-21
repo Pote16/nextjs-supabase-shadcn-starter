@@ -23,7 +23,7 @@ Vergiss überladene SPAs und unsichere Setups. Dieser Starter ist die perfekte B
 - **⚡ Next.js 16 (App Router)**: Server Components und Server Actions reduzieren Client-JS und sorgen für unglaubliche Performance.
 - **🔥 Native Supabase**: Nutze die volle Power der Datenbank. Sicherheit direkt auf Row-Level-Security (RLS) Ebene. **Kein Prisma** – reiner und typensicherer Supabase SDK-Zugriff gepaart mit generierten TypeScript-Typen aus den aktuellen SQL-Migrations.
 - **💎 Premium Design mit Shadcn UI**: Vorgefertigte, wunderschöne und hoch anpassbare Komponenten kombiniert mit Tailwind CSS v4.
-- **🚀 TanStack Ecosystem**: Das Setup nutzt *TanStack Query v5* für Server-State-Management, Caching und *TanStack Table v8* für performante Daten-Grids.
+- **🚀 TanStack Ecosystem**: Das Setup nutzt _TanStack Query v5_ für Server-State-Management, Caching und _TanStack Table v8_ für performante Daten-Grids.
 - **🛡️ Security First**: Strenge Server Actions über `safe-action` (z.B. `authActionClient`, `adminActionClient`) gekoppelt mit strikter Zod-Validierung.
 - **📦 Deploy-Ready**: Optimiert für Deployments mit PM2 auf eigenen Servern oder in der Cloud.
 
@@ -52,7 +52,7 @@ pnpm install
 
 ### 2. Supabase / Datenbank Setup
 
-Schau in den `/supabase/migrations` Ordner für das Datenbankschema. 
+Schau in den `/supabase/migrations` Ordner für das Datenbankschema.
 Starte die generierung und aktualisiere deine Typen nach Änderungen:
 
 ```bash
@@ -60,7 +60,7 @@ npx supabase db reset
 npm run db:types
 ```
 
-*(Die Datenbank-Verbindungsdaten und Supabase-Keys findest du in der `.env` Datei – benenne `.env.example` entsprechend um).*
+_(Die Datenbank-Verbindungsdaten und Supabase-Keys findest du in der `.env` Datei – benenne `.env.example` entsprechend um)._
 
 ### 3. Entwicklungsserver starten
 
